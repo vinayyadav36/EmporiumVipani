@@ -32,7 +32,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: './dist'
+          path: './dist/src'
 
       - name: Deploy to GitHub Pages
         id: deployment
@@ -41,4 +41,4 @@ jobs:
       - name: Print deployment info
         run: |
           echo "✅ Deployment successful!"
-          echo "🌐 GitHub Pages URL: https://vinayyadav36.github.io/EmporiumVipani"
+          echo "🌐 GitHub Pages URL: https://vinayyadav36.github.io/EmporiumVipani/src/"
