@@ -3,20 +3,19 @@ import { copy } from 'vite-plugin-copy'
 
 export default defineConfig({
   base: '/EmporiumVipani/',
-  publicDir: 'public',
+  root: 'public',
+  publicDir: false,
   build: {
-    outDir: 'dist',
-    assetsDir: 'assets',
+    outDir: '../dist',
+    assetsDir: '.',
     sourcemap: false,
     minify: 'terser',
-    rollupOptions: {
-      input: {
-        main: 'public/index.html'
-      }
-    }
+    copyPublicDir: false,
+    emptyOutDir: true
   },
   server: {
     port: 5173,
-    open: true
+    open: true,
+    root: 'public'
   }
 })
