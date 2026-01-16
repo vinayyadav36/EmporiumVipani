@@ -2,11 +2,11 @@ import { defineConfig } from 'vite'
 import { copy } from 'vite-plugin-copy'
 
 export default defineConfig({
-  base: '/EmporiumVipani/',
+  base: '/EmporiumVipani/src/',
   root: 'public',
   publicDir: false,
   build: {
-    outDir: '../dist',
+    outDir: '../dist/src',
     assetsDir: '.',
     sourcemap: false,
     minify: 'terser',
