@@ -1,0 +1,41 @@
+{
+  "name": "emproium-vipani",
+  "version": "1.0.0",
+  "private": true,
+  "description": "EmproiumVipani - Premium Multi-Vendor E-Commerce PWA (Web + Mobile)",
+  "author": "Vipani Team",
+  "homepage": "https://emproiumvipani.com",
+  "scripts": {
+    "dev": "vite --open",
+    "build": "vite build",
+    "preview": "vite preview",
+    "capacitor:init": "npx cap init emproium-vipani com.emproium.vipani",
+    "capacitor:add": "npx cap add ios android",
+    "capacitor:sync": "npx cap sync",
+    "capacitor:open": "npx cap open ios",
+    "capacitor:android": "npx cap open android",
+    "pwa:generate": "node scripts/generate-pwa.js"
+  },
+  "dependencies": {
+    "alpinejs": "^3.14.1"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^6.2.1",
+    "@capacitor/cli": "^6.2.1",
+    "@capacitor/core": "^6.2.1",
+    "@capacitor/ios": "^6.2.1",
+    "vite": "^5.4.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "browserslist": [
+    "> 0.5%",
+    "last 2 versions",
+    "not dead"
+  ],
+  "volta": {
+    "node": "20.12.2"
+  },
+  "packageManager": "npm@10.5.2"
+}
