@@ -502,12 +502,53 @@ class AppStore {
 const store = new AppStore();
 
 // ============================================
+// AXIOS API CLIENT
+// ============================================
+const API_BASE_URL = import.meta.env?.VITE_API_URL || 'http://localhost:5000/api';
+
+const apiClient = {
+    async request(method, endpoint, data = null) {
+        const token = localStorage.getItem('emproium_token');
+        const config = {
+            method,
+            url: `${API_BASE_URL}${endpoint}`,
+            headers: {
+                'Content-Type': 'application/json',
+                ...(token && { 'Authorization': `Bearer ${token}` })
+            }
+        };
+        
+        if (data) config.data = data;
+        
+        const response = await fetch(config.url, {
+            method: config.method,
+            headers: config.headers,
+            body: config.data ? JSON.stringify(config.data) : null
+        });
+        
+        const result = await response.json();
+        
+        if (!response.ok) {
+            throw new Error(result.message || 'API Error');
+        }
+        
+        return result;
+    },
+    
+    get(endpoint) { return this.request('GET', endpoint); },
+    post(endpoint, data) { return this.request('POST', endpoint, data); },
+    put(endpoint, data) { return this.request('PUT', endpoint, data); },
+    delete(endpoint) { return this.request('DELETE', endpoint); }
+};
+
+// ============================================
 // 3. ALPINE.JS APP INITIALIZATION
 // ============================================
 function appData() {
     return {
         // Expose store state
         store: store.state,
+        apiClient,
         
         // Cart methods
         addToCart(productId) {
