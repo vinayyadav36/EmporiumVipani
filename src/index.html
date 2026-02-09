@@ -103,7 +103,25 @@
             </span>
           </button>
 
-          <!-- CTA -->
+          <!-- Auth / Profile -->
+          <template x-if="!store.isLoggedIn">
+            <button @click="openLoginModal()"
+              class="hidden sm:inline-flex items-center gap-2 rounded-full border border-[#334155] bg-black/70 px-4 py-1.5 text-[11px] font-semibold text-slate-100 hover:border-goldSoft/70 hover:bg-ink-800 transition shadow-sm">
+              <span class="h-1.5 w-1.5 rounded-full bg-emeraldCore"></span>
+              Sign in
+            </button>
+          </template>
+          <template x-if="store.isLoggedIn">
+            <button @click="scrollTo('account')"
+              class="hidden sm:inline-flex items-center gap-2 rounded-full border border-[#334155] bg-black/70 px-4 py-1.5 text-[11px] font-semibold text-slate-100 hover:border-goldSoft/70 hover:bg-ink-800 transition shadow-sm">
+              <span class="h-6 w-6 rounded-full bg-emeraldCore/15 border border-emeraldCore/60 flex items-center justify-center text-[10px]">
+                <span x-text="(store.user?.name || store.user?.email || '?').charAt(0).toUpperCase()"></span>
+              </span>
+              <span>Account</span>
+            </button>
+          </template>
+
+          <!-- Partner CTA -->
           <button @click="openSellerModal()"
             class="hidden sm:inline-flex items-center gap-2 rounded-full border border-[#334155] bg-black/70 px-4 py-1.5 text-[11px] font-semibold text-slate-100 hover:border-goldSoft/70 hover:bg-ink-800 transition shadow-sm">
             <span class="h-1.5 w-1.5 rounded-full bg-emeraldCore"></span>
@@ -368,7 +386,7 @@
 
           <div class="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             <template x-for="product in store.filteredProducts" :key="product.id">
-              <article class="group card-compact flex flex-col">
+              <article class="group card-compact flex flex-col cursor-pointer" @click="openProduct(product.id)">
                 <div class="relative h-40 overflow-hidden">
                   <div class="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(250,204,107,0.12),_transparent_55%)] opacity-80"></div>
                   <div class="relative h-full w-full flex items-center justify-center">
@@ -397,7 +415,7 @@
                   </div>
                   <div class="flex items-center justify-between mt-1">
                     <div class="text-sm font-semibold text-slate-50" x-text="formatPrice(product.price)"></div>
-                    <button @click="addToCart(product.id)"
+                    <button @click.stop="addToCart(product.id)"
                       class="btn btn-primary text-[11px] px-3 py-1.5">
                       <span>+</span> Add
                     </button>
@@ -405,6 +423,81 @@
                 </div>
               </article>
             </template>
+          </div>
+        </div>
+      </section>
+
+      <!-- PRODUCT DETAIL VIEW -->
+      <section id="product-detail" class="border-t border-[#111827]" x-show="store.selectedProduct">
+        <div class="max-w-4xl mx-auto px-4 py-10 md:py-12 flex flex-col gap-6">
+          <div class="flex items-center justify-between">
+            <div>
+              <h2 class="font-display text-xl text-slate-50">Product detail</h2>
+              <p class="text-[12px] text-slate-400 mt-1">
+                A focused view for a single object, wired to the same cart and checkout flow.
+              </p>
+            </div>
+            <button @click="closeProductDetail()"
+              class="rounded-full border border-[#374151] bg-black/60 px-4 py-1.5 text-[11px] text-slate-200 hover:bg-slate-800 hover:border-slate-500 transition">
+              Close
+            </button>
+          </div>
+
+          <div class="grid gap-6 md:grid-cols-[1.1fr,1.3fr] items-start" x-show="store.selectedProduct">
+            <!-- Visual -->
+            <div class="space-y-4">
+              <div class="relative h-56 rounded-3xl bg-gradient-to-br from-[#020617] via-black to-[#020617] border border-[#1e293b] shadow-lg flex items-center justify-center">
+                <div class="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(250,204,107,0.18),_transparent_55%)] opacity-80"></div>
+                <div class="relative w-32 h-32 rounded-[2rem] bg-gradient-to-br from-[#020617] via-[#020617] to-[#020617] border border-[#4b5563] shadow-xl flex items-center justify-center">
+                  <div class="absolute -bottom-4 left-1/2 h-6 w-24 -translate-x-1/2 rounded-full bg-black/70 blur-xl"></div>
+                  <div class="relative text-5xl" x-text="store.selectedProduct?.image"></div>
+                  <div class="absolute inset-[1px] rounded-[1.9rem] border border-goldSoft/20 pointer-events-none"></div>
+                </div>
+              </div>
+              <div class="text-[11px] text-slate-400">
+                Sold by
+                <span class="text-slate-200 font-medium" x-text="getSeller(store.selectedProduct?.sellerId)?.name || 'Seller'"></span>
+              </div>
+            </div>
+
+            <!-- Info -->
+            <div class="space-y-4 text-[11px]">
+              <div class="space-y-1">
+                <div class="inline-flex items-center gap-2 rounded-full border border-[#374151] bg-black/70 px-3 py-1 text-[10px] uppercase tracking-[0.18em] text-slate-300">
+                  <span class="h-1.5 w-4 rounded-full bg-gradient-to-r from-emeraldCore to-goldSoft"></span>
+                  <span x-text="store.selectedProduct?.category || 'Object'"></span>
+                </div>
+                <h3 class="text-lg font-semibold text-slate-50" x-text="store.selectedProduct?.name"></h3>
+              </div>
+              <p class="text-slate-300" x-text="store.selectedProduct?.description"></p>
+
+              <div class="flex items-center gap-4">
+                <div class="text-2xl font-semibold text-slate-50" x-text="formatPrice(store.selectedProduct?.price || 0)"></div>
+                <div class="flex items-center gap-2 text-[11px] text-slate-400">
+                  <span class="inline-flex items-center gap-1 text-amber-300">
+                    <span>★</span>
+                    <span x-text="store.selectedProduct?.rating || 0"></span>
+                  </span>
+                  <span>·</span>
+                  <span>
+                    <span x-text="store.selectedProduct?.sales || 0"></span> sold
+                  </span>
+                </div>
+              </div>
+
+              <div class="flex items-center gap-3">
+                <button
+                  @click="addToCart(store.selectedProduct.id)"
+                  class="btn btn-primary text-[11px] px-4 py-2">
+                  Add to cart
+                </button>
+                <button
+                  @click="openCart()"
+                  class="btn btn-outline text-[11px] px-4 py-2">
+                  View cart
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -423,6 +516,280 @@
           <div class="text-[11px] text-slate-500 space-y-1">
             <p>Support: <a href="mailto:support@emproiumvipani.com" class="text-slate-300 underline-offset-4 hover:underline">support@emproiumvipani.com</a></p>
             <p>© <span x-text="new Date().getFullYear()"></span> EmproiumVipani</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ACCOUNT SUMMARY (BASIC SHELL) -->
+      <section id="account" class="border-t border-[#111827]" x-show="store.isLoggedIn">
+        <div class="max-w-6xl mx-auto px-4 py-10 md:py-12 flex flex-col gap-6">
+          <!-- Header -->
+          <div class="flex items-center justify-between">
+            <div>
+              <h2 class="font-display text-xl text-slate-50">Account</h2>
+              <p class="text-[12px] text-slate-400 mt-1">
+                Switch between overview, orders, and seller bookkeeping without leaving this surface.
+              </p>
+            </div>
+            <button @click="logout()"
+              class="rounded-full border border-[#374151] bg-black/60 px-4 py-1.5 text-[11px] text-slate-200 hover:bg-red-500/10 hover:border-red-500/60 hover:text-red-200 transition">
+              Log out
+            </button>
+          </div>
+
+          <!-- Tabs -->
+          <div class="inline-flex items-center gap-1 rounded-full bg-black/60 border border-[#111827] p-1 text-[11px]">
+            <button
+              @click="setAccountView('overview')"
+              :class="['px-3 py-1.5 rounded-full', store.account.view === 'overview' ? 'bg-slate-100 text-ink-900' : 'text-slate-300']">
+              Overview
+            </button>
+            <button
+              @click="setAccountView('orders')"
+              :class="['px-3 py-1.5 rounded-full', store.account.view === 'orders' ? 'bg-slate-100 text-ink-900' : 'text-slate-300']">
+              Orders
+            </button>
+            <button
+              @click="setAccountView('seller')"
+              :class="['px-3 py-1.5 rounded-full', store.account.view === 'seller' ? 'bg-slate-100 text-ink-900' : 'text-slate-300']"
+              x-show="store.user?.role === 'seller'">
+              Seller dashboard
+            </button>
+            <button
+              @click="setAccountView('bookkeeping')"
+              :class="['px-3 py-1.5 rounded-full', store.account.view === 'bookkeeping' ? 'bg-slate-100 text-ink-900' : 'text-slate-300']"
+              x-show="store.user?.role === 'seller'">
+              Bookkeeping
+            </button>
+            <button
+              @click="setAccountView('admin')"
+              :class="['px-3 py-1.5 rounded-full', store.account.view === 'admin' ? 'bg-slate-100 text-ink-900' : 'text-slate-300']"
+              x-show="store.user?.role === 'admin'">
+              Admin
+            </button>
+          </div>
+
+          <!-- Overview -->
+          <div x-show="store.account.view === 'overview'" class="grid gap-4 md:grid-cols-3 text-[11px]">
+            <div class="card-dark p-4 space-y-2">
+              <div class="text-[10px] uppercase tracking-[0.18em] text-slate-400">Identity</div>
+              <div class="flex items-center gap-3">
+                <div class="h-9 w-9 rounded-full bg-emeraldCore/10 border border-emeraldCore/60 flex items-center justify-center text-xs">
+                  <span x-text="(store.user?.name || store.user?.email || '?').charAt(0).toUpperCase()"></span>
+                </div>
+                <div class="space-y-0.5">
+                  <div class="text-xs text-slate-50" x-text="store.user?.name || 'New user'"></div>
+                  <div class="text-[11px] text-slate-400" x-text="store.user?.email || 'Email on file once verified'"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card-dark p-4 space-y-2">
+              <div class="text-[10px] uppercase tracking-[0.18em] text-slate-400">Security</div>
+              <p class="text-slate-300">
+                Login is secured by OTP and your private key. The key is never stored in your browser; only a salted hash lives on the server.
+              </p>
+            </div>
+
+            <div class="card-dark p-4 space-y-2">
+              <div class="text-[10px] uppercase tracking-[0.18em] text-slate-400">Status</div>
+              <p class="text-slate-300">
+                Role:
+                <span class="font-semibold" x-text="store.user?.role || 'customer'"></span>.
+                <span x-show="store.user?.role !== 'seller'">
+                  To become a seller, use the Partner access button in the header.
+                </span>
+                <span x-show="store.user?.role === 'seller'">
+                  Seller status:
+                  <span class="font-semibold" x-text="store.user?.seller?.status || 'pending'"></span>.
+                </span>
+              </p>
+            </div>
+          </div>
+
+          <!-- Orders -->
+          <div x-show="store.account.view === 'orders'" class="space-y-3 text-[11px]">
+            <div class="flex items-center justify-between">
+              <div class="text-slate-200 font-medium">Order history</div>
+              <button @click="loadOrders()" class="text-[11px] text-slate-400 hover:text-slate-100">
+                Refresh
+              </button>
+            </div>
+            <template x-if="store.account.loading.orders">
+              <div class="text-slate-400">Loading your orders…</div>
+            </template>
+            <template x-if="!store.account.loading.orders && store.account.orders.length === 0">
+              <div class="text-slate-400">
+                No orders yet. Once you place an order, it will appear here with status and delivery details.
+              </div>
+            </template>
+            <div class="space-y-2" x-show="!store.account.loading.orders && store.account.orders.length > 0">
+              <template x-for="order in store.account.orders" :key="order._id">
+                <div class="card-dark p-4 flex flex-col gap-2">
+                  <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                      <span class="font-mono text-[11px] text-emeraldCore" x-text="order.orderId"></span>
+                      <span class="text-[10px] text-slate-400" x-text="new Date(order.createdAt).toLocaleString()"></span>
+                    </div>
+                    <span class="px-2 py-0.5 rounded-full text-[10px]"
+                      :class="{
+                        'bg-emeraldCore/10 text-emeraldCore': order.status === 'delivered',
+                        'bg-amber-400/10 text-amber-300': ['pending','confirmed','shipped','packed'].includes(order.status),
+                        'bg-red-500/10 text-red-300': order.status === 'cancelled'
+                      }"
+                      x-text="order.status"></span>
+                  </div>
+                  <div class="flex items-center justify-between">
+                    <div class="text-slate-300">
+                      <span x-text="order.items?.length || 0"></span>
+                      items ·
+                      <span x-text="'₹' + (order.total || 0).toLocaleString('en-IN')"></span>
+                    </div>
+                    <div class="text-[10px] text-slate-400">
+                      To:
+                      <span x-text="order.deliveryAddress?.city || order.deliveryAddress?.street"></span>
+                    </div>
+                  </div>
+                  <!-- Status timeline -->
+                  <div class="mt-2 flex items-center gap-2 text-[10px] text-slate-400">
+                    <template x-for="step in ['pending','confirmed','packed','shipped','delivered']" :key="step">
+                      <div class="flex items-center gap-1">
+                        <div
+                          class="h-1.5 w-1.5 rounded-full"
+                          :class="{
+                            'bg-emeraldCore': ['pending','confirmed','packed','shipped','delivered'].indexOf(order.status) >= ['pending','confirmed','packed','shipped','delivered'].indexOf(step),
+                            'bg-slate-600': ['pending','confirmed','packed','shipped','delivered'].indexOf(order.status) < ['pending','confirmed','packed','shipped','delivered'].indexOf(step)
+                          }"></div>
+                        <span
+                          :class="{
+                            'text-slate-200 font-semibold': order.status === step,
+                            'text-slate-400': order.status !== step
+                          }"
+                          x-text="step"></span>
+                        <span x-show="step !== 'delivered'" class="mx-1 text-slate-600">→</span>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <!-- Seller dashboard (skeleton) -->
+          <div x-show="store.account.view === 'seller'" class="space-y-3 text-[11px]">
+            <div class="flex items-center justify-between">
+              <div class="text-slate-200 font-medium">Seller dashboard</div>
+              <button @click="loadSellerDashboard()" class="text-[11px] text-slate-400 hover:text-slate-100">
+                Refresh
+              </button>
+            </div>
+            <template x-if="store.user?.role !== 'seller'">
+              <div class="text-slate-400">
+                You are not yet a seller. Submit a seller application from the Partner access button in the header.
+              </div>
+            </template>
+            <template x-if="store.user?.role === 'seller'">
+              <div class="space-y-3">
+                <div class="card-dark p-4 space-y-1">
+                  <div class="text-[10px] uppercase tracking-[0.18em] text-slate-400">Storefront</div>
+                  <div class="text-slate-200" x-text="store.user?.seller?.businessName || 'Your brand name'"></div>
+                  <div class="text-[11px] text-slate-400" x-text="store.user?.seller?.description"></div>
+                </div>
+                <div class="space-y-2">
+                  <div class="text-slate-200">Products</div>
+                  <template x-if="store.account.loading.seller">
+                    <div class="text-slate-400">Loading your products…</div>
+                  </template>
+                  <template x-if="!store.account.loading.seller && store.account.sellerProducts.length === 0">
+                    <div class="text-slate-400">
+                      No products yet. Once created via the backend/admin tools, they will appear here with basic stats.
+                    </div>
+                  </template>
+                  <div class="grid gap-2 md:grid-cols-2" x-show="!store.account.loading.seller && store.account.sellerProducts.length > 0">
+                    <template x-for="product in store.account.sellerProducts" :key="product._id">
+                      <div class="card-dark p-3 flex flex-col gap-1">
+                        <div class="flex items-center justify-between">
+                          <div class="text-[12px] text-slate-100 line-clamp-1" x-text="product.name"></div>
+                          <div class="text-[11px] text-slate-300" x-text="'₹' + product.price.toLocaleString('en-IN')"></div>
+                        </div>
+                        <div class="flex items-center justify-between text-[10px] text-slate-400">
+                          <span>Stock: <span x-text="product.stock"></span></span>
+                          <span>Sales: <span x-text="product.sales"></span></span>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <!-- Bookkeeping (placeholder for now) -->
+          <div x-show="store.account.view === 'bookkeeping'" class="space-y-3 text-[11px]">
+            <div class="text-slate-200 font-medium">Bookkeeping & account summary</div>
+            <p class="text-slate-400">
+              This area will consolidate your payouts, platform fees, and monthly breakdowns. Once backend reporting endpoints
+              are ready, this view can be wired to show revenue, net payouts, and tax summaries per period.
+            </p>
+          </div>
+
+          <!-- Admin dashboard (read-only overview) -->
+          <div x-show="store.account.view === 'admin'" class="space-y-3 text-[11px]">
+            <div class="flex items-center justify-between">
+              <div class="text-slate-200 font-medium">Admin dashboard</div>
+              <button @click="loadAdminDashboard()" class="text-[11px] text-slate-400 hover:text-slate-100">
+                Refresh
+              </button>
+            </div>
+            <template x-if="store.user?.role !== 'admin'">
+              <div class="text-slate-400">
+                You need admin privileges to see this dashboard.
+              </div>
+            </template>
+            <template x-if="store.user?.role === 'admin'">
+              <div class="space-y-4">
+                <template x-if="store.account.loading.admin">
+                  <div class="text-slate-400">Loading platform overview…</div>
+                </template>
+                <div class="grid gap-3 md:grid-cols-4" x-show="!store.account.loading.admin">
+                  <div class="card-dark p-3">
+                    <div class="text-[10px] uppercase tracking-[0.18em] text-slate-400">Users</div>
+                    <div class="text-lg text-slate-50" x-text="store.account.adminDashboard?.users ?? '–'"></div>
+                  </div>
+                  <div class="card-dark p-3">
+                    <div class="text-[10px] uppercase tracking-[0.18em] text-slate-400">Products</div>
+                    <div class="text-lg text-slate-50" x-text="store.account.adminDashboard?.products ?? '–'"></div>
+                  </div>
+                  <div class="card-dark p-3">
+                    <div class="text-[10px] uppercase tracking-[0.18em] text-slate-400">Orders</div>
+                    <div class="text-lg text-slate-50" x-text="store.account.adminDashboard?.orders ?? '–'"></div>
+                  </div>
+                  <div class="card-dark p-3">
+                    <div class="text-[10px] uppercase tracking-[0.18em] text-slate-400">Revenue</div>
+                    <div class="text-lg text-slate-50" x-text="store.account.adminDashboard ? '₹' + store.account.adminDashboard.revenue.toLocaleString('en-IN') : '–'"></div>
+                  </div>
+                </div>
+                <div class="space-y-2" x-show="!store.account.loading.admin">
+                  <div class="text-slate-200">Pending seller approvals</div>
+                  <template x-if="(store.account.pendingSellers || []).length === 0">
+                    <div class="text-slate-400">
+                      No pending seller applications.
+                    </div>
+                  </template>
+                  <div class="space-y-2" x-show="(store.account.pendingSellers || []).length > 0">
+                    <template x-for="seller in store.account.pendingSellers" :key="seller._id">
+                      <div class="card-dark p-3 flex flex-col gap-1">
+                        <div class="flex items-center justify-between">
+                          <div class="text-slate-100 text-[12px]" x-text="seller.name"></div>
+                          <div class="text-[10px] text-slate-400" x-text="seller.email"></div>
+                        </div>
+                        <div class="text-[10px] text-slate-400" x-text="seller.seller?.businessName"></div>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </div>
+            </template>
           </div>
         </div>
       </section>
@@ -600,6 +967,146 @@
           Submit application
         </button>
       </form>
+    </div>
+  </div>
+
+  <!-- ============================================
+       SESSION EXTEND MODAL
+       ============================================ -->
+  <div x-show="store.auth.showSessionExtend"
+       x-transition.opacity
+       class="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(0,0,0,0.72)] backdrop-blur-[10px] px-4">
+    <div class="modal-panel w-full max-w-md">
+      <div class="px-4 py-3 border-b border-[#111827] flex items-center justify-between">
+        <div class="font-semibold text-sm">Session expiring soon</div>
+        <button @click="store.auth.showSessionExtend = false" class="text-slate-400 hover:text-slate-100 text-lg font-light">&times;</button>
+      </div>
+
+      <div class="p-4 space-y-3 text-[11px]">
+        <p class="text-slate-300">
+          For security, your session is limited to 15 minutes. You have less than 3 minutes left.
+        </p>
+        <p class="text-slate-400">
+          Choose whether to keep this session active or let it end and require login again.
+        </p>
+        <div class="flex flex-col sm:flex-row gap-2 mt-3">
+          <button
+            type="button"
+            @click="window.handleExtendSession.call($data)"
+            class="btn btn-primary flex-1 text-[11px]">
+            Extend session by 15 minutes
+          </button>
+          <button
+            type="button"
+            @click="logout()"
+            class="btn btn-outline flex-1 text-[11px] border-red-500/70 text-red-200 hover:bg-red-500/10">
+            End session now
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================
+       AUTH MODAL (OTP + SAFE KEY)
+       ============================================ -->
+  <div x-show="store.modals.login"
+       x-transition.opacity
+       class="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(0,0,0,0.72)] backdrop-blur-[10px] px-4">
+    <div class="modal-panel w-full max-w-md">
+      <div class="px-4 py-3 border-b border-[#111827] flex items-center justify-between">
+        <div class="font-semibold text-sm">Sign in / Create account</div>
+        <button @click="closeLoginModal()" class="text-slate-400 hover:text-slate-100 text-lg font-light">&times;</button>
+      </div>
+
+      <div class="p-4 space-y-4 text-[11px]">
+        <!-- Step 1: Identifier -->
+        <div class="space-y-2">
+          <label class="block text-[11px] font-semibold text-slate-200 mb-1">
+            Email or phone number
+          </label>
+          <input
+            x-ref="authIdentifier"
+            type="text"
+            placeholder="you@example.com or +91 98765 43210"
+            class="rounded-full border border-[#374151] bg-black/70 px-3 py-2 text-[11px] text-slate-100 w-full" />
+          <button
+            type="button"
+            @click="window.handleAuthRequestOtp.call($data)"
+            class="btn btn-primary w-full mt-2 text-[11px]">
+            Send OTP
+          </button>
+        </div>
+
+        <!-- Step 2: OTP -->
+        <template x-if="store.auth.otpStage === 'awaiting_otp'">
+          <div class="space-y-2 mt-2">
+            <label class="block text-[11px] font-semibold text-slate-200 mb-1">
+              Enter OTP
+            </label>
+            <input
+              x-ref="authOtpCode"
+              type="text"
+              placeholder="6-digit code"
+              class="rounded-full border border-[#374151] bg-black/70 px-3 py-2 text-[11px] text-slate-100 w-full" />
+            <button
+              type="button"
+              @click="window.handleAuthVerifyOtp.call($data)"
+              class="btn btn-primary w-full mt-2 text-[11px]">
+              Verify OTP
+            </button>
+          </div>
+        </template>
+
+        <!-- Step 3: Set key (first time) -->
+        <template x-if="store.auth.otpStage === 'set_key'">
+          <div class="space-y-2 mt-2">
+            <label class="block text-[11px] font-semibold text-slate-200 mb-1">
+              Create your private key
+            </label>
+            <input
+              x-ref="authKey"
+              type="password"
+              placeholder="A strong key you will remember"
+              class="rounded-full border border-[#374151] bg-black/70 px-3 py-2 text-[11px] text-slate-100 w-full" />
+            <input
+              x-ref="authKeyConfirm"
+              type="password"
+              placeholder="Confirm key"
+              class="mt-2 rounded-full border border-[#374151] bg-black/70 px-3 py-2 text-[11px] text-slate-100 w-full" />
+            <button
+              type="button"
+              @click="window.handleAuthSetKey.call($data)"
+              class="btn btn-primary w-full mt-2 text-[11px]">
+              Save key & continue
+            </button>
+          </div>
+        </template>
+
+        <!-- Step 4: Existing user login with key -->
+        <template x-if="store.auth.otpStage === 'login_with_key'">
+          <div class="space-y-2 mt-2">
+            <label class="block text-[11px] font-semibold text-slate-200 mb-1">
+              Enter your private key
+            </label>
+            <input
+              x-ref="authExistingKey"
+              type="password"
+              placeholder="Your private key"
+              class="rounded-full border border-[#374151] bg-black/70 px-3 py-2 text-[11px] text-slate-100 w-full" />
+            <button
+              type="button"
+              @click="window.handleAuthLoginWithKey.call($data)"
+              class="btn btn-primary w-full mt-2 text-[11px]">
+              Log in
+            </button>
+          </div>
+        </template>
+
+        <div class="text-[10px] text-slate-500 mt-3">
+          We use OTP plus a private key instead of traditional passwords. Your key is salted, hashed, and stored only on the server.
+        </div>
+      </div>
     </div>
   </div>
 

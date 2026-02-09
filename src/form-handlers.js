@@ -199,34 +199,114 @@ window.showOrderConfirmation = function(order) {
     document.body.appendChild(modal);
 };
 
-window.handleLogin = async function() {
-    try {
-        const email = this.$refs.loginEmail?.value;
-        const password = this.$refs.loginPassword?.value;
+// ---------- AUTH (OTP + SAFE KEY) ----------
 
-        if (!email || !password) {
-            Toast.show('Email and password are required', 'error');
+/**
+ * Step 1: Request OTP for the given identifier (email or phone).
+ */
+window.handleAuthRequestOtp = async function() {
+    try {
+        const identifier = this.$refs.authIdentifier?.value;
+
+        if (!identifier) {
+            Toast.show('Please enter your email or phone number', 'error');
+            return;
+        }
+
+        LoadingOverlay.show('Sending OTP...');
+        await store.startOtpFlow(identifier, 'login');
+        LoadingOverlay.hide();
+    } catch (error) {
+        LoadingOverlay.hide();
+        console.error('❌ OTP request error:', error);
+        Toast.show(error.message || 'Failed to send OTP', 'error');
+    }
+};
+
+/**
+ * Step 2: Verify OTP code entered by the user.
+ */
+window.handleAuthVerifyOtp = async function() {
+    try {
+        const otpCode = this.$refs.authOtpCode?.value;
+
+        if (!otpCode) {
+            Toast.show('Please enter the OTP code', 'error');
+            return;
+        }
+
+        LoadingOverlay.show('Verifying OTP...');
+        await store.verifyOtpCode(otpCode);
+        LoadingOverlay.hide();
+    } catch (error) {
+        LoadingOverlay.hide();
+        console.error('❌ OTP verify error:', error);
+        Toast.show(error.message || 'OTP verification failed', 'error');
+    }
+};
+
+/**
+ * Step 3: First-time users set their private key.
+ */
+window.handleAuthSetKey = async function() {
+    try {
+        const key = this.$refs.authKey?.value;
+        const keyConfirm = this.$refs.authKeyConfirm?.value;
+
+        if (!key || !keyConfirm) {
+            Toast.show('Please enter and confirm your key', 'error');
+            return;
+        }
+        if (key !== keyConfirm) {
+            Toast.show('Keys do not match', 'error');
+            return;
+        }
+
+        LoadingOverlay.show('Securing your account...');
+        await store.setSafeKey(key);
+        LoadingOverlay.hide();
+    } catch (error) {
+        LoadingOverlay.hide();
+        console.error('❌ Set key error:', error);
+        Toast.show(error.message || 'Failed to set key', 'error');
+    }
+};
+
+/**
+ * Step 4: Existing users login directly with identifier + key.
+ */
+window.handleAuthLoginWithKey = async function() {
+    try {
+        const identifier = this.$refs.authIdentifier?.value;
+        const key = this.$refs.authExistingKey?.value;
+
+        if (!identifier || !key) {
+            Toast.show('Identifier and key are required', 'error');
             return;
         }
 
         LoadingOverlay.show('Logging in...');
-
-        const result = await api.login(email, password);
-
+        await store.loginWithKey(identifier, key);
         LoadingOverlay.hide();
-        Toast.show('✅ Logged in successfully!', 'success');
-        
-        store.setState({
-            user: result.user,
-            isLoggedIn: true
-        });
-
-        this.closeLoginModal?.();
-
     } catch (error) {
         LoadingOverlay.hide();
-        console.error('❌ Login error:', error);
+        console.error('❌ Login with key error:', error);
         Toast.show(error.message || 'Login failed', 'error');
+    }
+};
+
+/**
+ * Session extension handler when user chooses to keep working.
+ */
+window.handleExtendSession = async function() {
+    try {
+        LoadingOverlay.show('Extending your session...');
+        await store.extendSession();
+        LoadingOverlay.hide();
+    } catch (error) {
+        LoadingOverlay.hide();
+        console.error('❌ Extend session error:', error);
+        Toast.show(error.message || 'Unable to extend session', 'error');
     }
 };
 

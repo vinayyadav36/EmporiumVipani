@@ -15,6 +15,32 @@ class AppStore {
             // User & Auth
             user: null,
             isLoggedIn: false,
+            sessionExpiresAt: null,
+            auth: {
+                // For OTP + key flow
+                otpRequestId: null,
+                otpStage: 'idle', // 'idle' | 'awaiting_otp' | 'set_key' | 'login_with_key'
+                identifier: '',   // email or phone used for login
+                // Session management
+                sessionWarningShown: false,
+                showSessionExtend: false
+            },
+
+            // Account & dashboard data
+            account: {
+                view: 'overview', // 'overview' | 'orders' | 'seller' | 'bookkeeping'
+                profile: null,
+                orders: [],
+                sellerProducts: [],
+                adminDashboard: null,
+                pendingSellers: [],
+                loading: {
+                    profile: false,
+                    orders: false,
+                    seller: false,
+                    admin: false
+                }
+            },
             
             // Cart
             cart: [],
@@ -29,6 +55,7 @@ class AppStore {
                 search: '',
                 sortBy: 'relevance'
             },
+            selectedProduct: null,
             
             // UI State
             modals: {
@@ -58,13 +85,93 @@ class AppStore {
     
     init() {
         this.loadFromStorage();
-        this.seedData();
+        this.loadInitialData();
+    }
+    
+    // ========== Initial Data Loading (API-first with graceful fallback) ==========
+    async loadInitialData() {
+        // Try loading from backend API first; fall back to local seed data on failure
+        this.state.loading.products = true;
+        this.notify();
+
+        try {
+            const api = window.api;
+
+            if (!api || typeof api.getProducts !== 'function' || typeof api.getSellers !== 'function') {
+                console.warn('⚠️ API service not available, using local seed data');
+                this.seedData();
+                return;
+            }
+
+            const [productsResponse, sellersResponse] = await Promise.all([
+                api.getProducts({ limit: 60 }),
+                api.getSellers('approved')
+            ]);
+
+            const rawProducts = productsResponse?.data || [];
+            const rawSellers = sellersResponse?.data || [];
+
+            // Normalize sellers
+            const sellers = rawSellers.map((s) => ({
+                id: s._id,
+                name: s.name,
+                status: s.seller?.status || 'approved',
+                rating: 0,
+                desc: s.seller?.description || '',
+                avatar: (s.name || 'S').charAt(0).toUpperCase(),
+                verified: !!s.seller?.verified,
+                location: s.seller?.businessType || 'Seller'
+            }));
+
+            // Index sellers by id for quick lookup
+            const sellerMap = new Map(sellers.map((s) => [String(s.id), s]));
+
+            // Normalize products into the shape the UI expects
+            const products = rawProducts.map((p) => {
+                const sellerId = (p.sellerId && (p.sellerId._id || p.sellerId)) || null;
+                const seller = sellerMap.get(String(sellerId));
+
+                // Choose a simple emoji avatar based on category if thumbnail is not present
+                const defaultEmojiByCategory = {
+                    'Natural Products': '🌿',
+                    'Stationery': '📓',
+                    'Worksheets': '📚',
+                    'Other': '🛒'
+                };
+
+                return {
+                    id: p._id,
+                    name: p.name,
+                    price: p.price,
+                    sellerId: seller ? seller.id : sellerId,
+                    category: p.category || 'Other',
+                    image: p.thumbnail || defaultEmojiByCategory[p.category] || '🛒',
+                    stock: p.stock ?? 0,
+                    rating: p.rating?.average ?? 0,
+                    sales: p.sales ?? 0,
+                    description: p.description || ''
+                };
+            });
+
+            this.state.sellers = sellers;
+            this.state.products = products;
+            this.state.filteredProducts = [...products];
+            this.filterProducts();
+        } catch (error) {
+            console.error('❌ Failed to load products from API, using local seed data instead:', error);
+            this.showToast('Unable to connect to marketplace server. Showing demo catalogue.', 'warning');
+            this.seedData();
+        } finally {
+            this.state.loading.products = false;
+            this.notify();
+        }
     }
     
     // ========== Storage Management ==========
     loadFromStorage() {
         const saved = localStorage.getItem('emproium_cart');
         const userSaved = localStorage.getItem('emproium_user');
+        const sessionExpiry = localStorage.getItem('emproium_session_expires_at');
         
         if (saved) {
             try {
@@ -82,12 +189,27 @@ class AppStore {
                 console.error('User load error:', e);
             }
         }
+
+        if (sessionExpiry) {
+            const expiry = Number(sessionExpiry);
+            if (!Number.isNaN(expiry) && expiry > Date.now()) {
+                this.state.sessionExpiresAt = expiry;
+            } else {
+                // Expired stored session
+                this.logout();
+            }
+        }
     }
     
     saveToStorage() {
         localStorage.setItem('emproium_cart', JSON.stringify(this.state.cart));
         if (this.state.user) {
             localStorage.setItem('emproium_user', JSON.stringify(this.state.user));
+        }
+        if (this.state.sessionExpiresAt) {
+            localStorage.setItem('emproium_session_expires_at', String(this.state.sessionExpiresAt));
+        } else {
+            localStorage.removeItem('emproium_session_expires_at');
         }
     }
     
@@ -360,29 +482,337 @@ class AppStore {
     getSeller(sellerId) {
         return this.state.sellers.find(s => s.id === sellerId);
     }
-    
-    // ========== Auth ==========
-    login(email, password) {
-        // Demo login (no real auth for static site)
-        if (email && password) {
-            this.state.user = {
-                email,
-                name: email.split('@')[0],
-                loginTime: new Date()
-            };
-            this.state.isLoggedIn = true;
-            this.saveToStorage();
-            this.notify();
-            this.showToast('✅ Logged in successfully!', 'success');
-            return true;
+
+    // ========== Product Detail ==========
+    async setSelectedProductById(productId) {
+        let product = this.state.products.find(p => p.id === productId);
+
+        // If not in current list (or missing fields), try fetching from API
+        if (!product && window.api && typeof window.api.getProduct === 'function') {
+            try {
+                const result = await window.api.getProduct(productId);
+                product = result.data;
+            } catch (error) {
+                console.error('❌ Load product detail error:', error);
+                this.showToast('Unable to load product details', 'error');
+            }
         }
-        return false;
+
+        if (product) {
+            this.state.selectedProduct = product;
+            this.notify();
+        }
+    }
+
+    clearSelectedProduct() {
+        this.state.selectedProduct = null;
+        this.notify();
     }
     
+    // ========== Auth (OTP + SAFE KEY) ==========
+    /**
+     * Start login/signup by requesting an OTP to email or phone.
+     */
+    async startOtpFlow(identifier, purpose = 'login') {
+        if (!identifier) {
+            throw new Error('Identifier is required');
+        }
+
+        const api = window.api;
+        if (!api || typeof api.requestOtp !== 'function') {
+            throw new Error('Auth service not available');
+        }
+
+        this.state.auth.identifier = identifier;
+        this.state.auth.otpStage = 'requesting';
+        this.notify();
+
+        const result = await api.requestOtp(identifier, purpose);
+
+        this.state.auth.otpRequestId = result.requestId;
+        this.state.auth.otpStage = 'awaiting_otp';
+        this.notify();
+
+        this.showToast('📩 OTP sent. Please check your phone/email.', 'info');
+        return result;
+    }
+
+    /**
+     * Verify OTP code.
+     * Backend should tell us whether this is a first-time user (needs key)
+     * or an existing user (already has key set).
+     */
+    async verifyOtpCode(otpCode) {
+        const api = window.api;
+        if (!api || typeof api.verifyOtp !== 'function') {
+            throw new Error('Auth service not available');
+        }
+
+        if (!this.state.auth.otpRequestId) {
+            throw new Error('No OTP request in progress');
+        }
+
+        const result = await api.verifyOtp(this.state.auth.otpRequestId, otpCode);
+
+        // Expect backend to return { user, hasKey, token? }
+        const user = result.user || null;
+        const hasKey = !!result.hasKey;
+
+        this.state.user = user;
+        this.state.isLoggedIn = !!user && hasKey && !!result.token;
+
+        if (!hasKey) {
+            // First-time user – ask them to set a key
+            this.state.auth.otpStage = 'set_key';
+            this.showToast('Create your private key to secure your account.', 'info');
+        } else if (!this.state.isLoggedIn) {
+            // Has key but not logged in yet (token will be obtained via loginWithKey)
+            this.state.auth.otpStage = 'login_with_key';
+        } else {
+            // Fully logged in
+            this.state.auth.otpStage = 'idle';
+            this.closeModal('login');
+            this.showToast('✅ Logged in successfully!', 'success');
+        }
+
+        this.saveToStorage();
+        this.notify();
+        return result;
+    }
+
+    /**
+     * First-time key setup after OTP verification.
+     */
+    async setSafeKey(key) {
+        const api = window.api;
+        if (!api || typeof api.setSafeKey !== 'function') {
+            throw new Error('Auth service not available');
+        }
+
+        const result = await api.setSafeKey(key);
+
+        // Expect backend to return { user, token }
+        if (result.user) {
+            this.state.user = result.user;
+        }
+        this.state.isLoggedIn = !!this.state.user;
+        // 15-minute session window from now
+        this.state.sessionExpiresAt = Date.now() + 15 * 60 * 1000;
+        this.state.auth.sessionWarningShown = false;
+        this.state.auth.showSessionExtend = false;
+
+        // Preload profile & orders for account view
+        this.loadProfileAndOrders().catch(console.error);
+
+        this.state.auth.otpStage = 'idle';
+        this.saveToStorage();
+        this.notify();
+
+        this.closeModal('login');
+        this.showToast('🔐 Key set. You are now logged in.', 'success');
+
+        return result;
+    }
+
+    /**
+     * Existing user login using identifier + key.
+     */
+    async loginWithKey(identifier, key) {
+        const api = window.api;
+        if (!api || typeof api.loginWithKey !== 'function') {
+            throw new Error('Auth service not available');
+        }
+
+        const result = await api.loginWithKey(identifier, key);
+
+        this.state.user = result.user || null;
+        this.state.isLoggedIn = !!this.state.user;
+        this.state.auth.otpStage = 'idle';
+        this.state.auth.identifier = identifier;
+        this.state.sessionExpiresAt = Date.now() + 15 * 60 * 1000;
+        this.state.auth.sessionWarningShown = false;
+        this.state.auth.showSessionExtend = false;
+
+        // Preload profile & orders for account view
+        this.loadProfileAndOrders().catch(console.error);
+
+        this.saveToStorage();
+        this.notify();
+
+        this.closeModal('login');
+        this.showToast('✅ Logged in successfully!', 'success');
+
+        return result;
+    }
+
+    // ========== Account Data (Profile, Orders, Seller Dashboard) ==========
+
+    async loadProfile() {
+        if (!this.state.isLoggedIn) return;
+        const api = window.api;
+        if (!api || typeof api.getProfile !== 'function') return;
+
+        this.state.account.loading.profile = true;
+        this.notify();
+
+        try {
+            const result = await api.getProfile();
+            this.state.account.profile = result.data;
+            // Keep top-level user in sync
+            this.state.user = result.data;
+            this.saveToStorage();
+        } catch (error) {
+            console.error('❌ Load profile error:', error);
+            this.showToast('Unable to load profile', 'error');
+        } finally {
+            this.state.account.loading.profile = false;
+            this.notify();
+        }
+    }
+
+    async loadOrders() {
+        if (!this.state.isLoggedIn) return;
+        const api = window.api;
+        if (!api || typeof api.getOrders !== 'function') return;
+
+        this.state.account.loading.orders = true;
+        this.notify();
+
+        try {
+            const result = await api.getOrders();
+            this.state.account.orders = result.data || [];
+        } catch (error) {
+            console.error('❌ Load orders error:', error);
+            this.showToast('Unable to load orders', 'error');
+        } finally {
+            this.state.account.loading.orders = false;
+            this.notify();
+        }
+    }
+
+    async loadSellerDashboard() {
+        if (!this.state.isLoggedIn) return;
+        const api = window.api;
+        if (!api || typeof api.getSellerProducts !== 'function') return;
+
+        // Only if user is a seller
+        const sellerId = this.state.user?.role === 'seller' ? this.state.user._id || this.state.user.id : null;
+        if (!sellerId) return;
+
+        this.state.account.loading.seller = true;
+        this.notify();
+
+        try {
+            const result = await api.getSellerProducts(sellerId);
+            this.state.account.sellerProducts = result.data || [];
+        } catch (error) {
+            console.error('❌ Load seller products error:', error);
+            this.showToast('Unable to load seller products', 'error');
+        } finally {
+            this.state.account.loading.seller = false;
+            this.notify();
+        }
+    }
+
+    async loadProfileAndOrders() {
+        await Promise.all([this.loadProfile(), this.loadOrders()]);
+    }
+
+    setAccountView(view) {
+        this.state.account.view = view;
+        this.notify();
+
+        if (view === 'orders') {
+            this.loadOrders().catch(console.error);
+        } else if (view === 'seller') {
+            this.loadSellerDashboard().catch(console.error);
+        } else if (view === 'admin') {
+            this.loadAdminDashboard().catch(console.error);
+        }
+    }
+
+    async loadAdminDashboard() {
+        if (!this.state.isLoggedIn || this.state.user?.role !== 'admin') return;
+        const api = window.api;
+        if (!api || typeof api.getAdminDashboard !== 'function' || typeof api.getPendingSellers !== 'function') return;
+
+        this.state.account.loading.admin = true;
+        this.notify();
+
+        try {
+            const [dashboard, pending] = await Promise.all([
+                api.getAdminDashboard(),
+                api.getPendingSellers()
+            ]);
+            this.state.account.adminDashboard = dashboard.data;
+            this.state.account.pendingSellers = pending.data || [];
+        } catch (error) {
+            console.error('❌ Load admin dashboard error:', error);
+            this.showToast('Unable to load admin dashboard', 'error');
+        } finally {
+            this.state.account.loading.admin = false;
+            this.notify();
+        }
+    }
+
+    /**
+     * Extend the current session if token is still valid.
+     */
+    async extendSession() {
+        const api = window.api;
+        if (!api || typeof api.refreshToken !== 'function') {
+            throw new Error('Auth service not available');
+        }
+
+        const result = await api.refreshToken();
+
+        // Reset expiry window
+        this.state.sessionExpiresAt = Date.now() + 15 * 60 * 1000;
+        this.state.auth.sessionWarningShown = false;
+        this.state.auth.showSessionExtend = false;
+
+        this.saveToStorage();
+        this.notify();
+
+        this.showToast('⏱ Session extended by 15 minutes.', 'success');
+
+        return result;
+    }
+
+    /**
+     * Check for session expiry and trigger warnings/auto logout.
+     * Intended to be called on an interval from the shell.
+     */
+    checkSessionExpiry() {
+        if (!this.state.isLoggedIn || !this.state.sessionExpiresAt) return;
+
+        const remaining = this.state.sessionExpiresAt - Date.now();
+
+        if (remaining <= 0) {
+            // Session expired
+            this.logout();
+            this.showToast('🔒 Session expired. Please login again.', 'info');
+            return;
+        }
+
+        const threeMinutes = 3 * 60 * 1000;
+        if (remaining <= threeMinutes && !this.state.auth.sessionWarningShown) {
+            this.state.auth.sessionWarningShown = true;
+            this.state.auth.showSessionExtend = true;
+            this.notify();
+        }
+    }
+
     logout() {
         this.state.user = null;
         this.state.isLoggedIn = false;
+        this.state.sessionExpiresAt = null;
+        this.state.auth.sessionWarningShown = false;
+        this.state.auth.showSessionExtend = false;
         localStorage.removeItem('emproium_user');
+        if (window.api && typeof window.api.logout === 'function') {
+            window.api.logout();
+        }
         this.notify();
         this.showToast('👋 Logged out', 'info');
     }
@@ -502,53 +932,13 @@ class AppStore {
 const store = new AppStore();
 
 // ============================================
-// AXIOS API CLIENT
-// ============================================
-const API_BASE_URL = import.meta.env?.VITE_API_URL || 'http://localhost:5000/api';
-
-const apiClient = {
-    async request(method, endpoint, data = null) {
-        const token = localStorage.getItem('emproium_token');
-        const config = {
-            method,
-            url: `${API_BASE_URL}${endpoint}`,
-            headers: {
-                'Content-Type': 'application/json',
-                ...(token && { 'Authorization': `Bearer ${token}` })
-            }
-        };
-        
-        if (data) config.data = data;
-        
-        const response = await fetch(config.url, {
-            method: config.method,
-            headers: config.headers,
-            body: config.data ? JSON.stringify(config.data) : null
-        });
-        
-        const result = await response.json();
-        
-        if (!response.ok) {
-            throw new Error(result.message || 'API Error');
-        }
-        
-        return result;
-    },
-    
-    get(endpoint) { return this.request('GET', endpoint); },
-    post(endpoint, data) { return this.request('POST', endpoint, data); },
-    put(endpoint, data) { return this.request('PUT', endpoint, data); },
-    delete(endpoint) { return this.request('DELETE', endpoint); }
-};
-
-// ============================================
 // 3. ALPINE.JS APP INITIALIZATION
 // ============================================
 function appData() {
     return {
         // Expose store state
         store: store.state,
-        apiClient,
+        api: window.api,
         
         // Cart methods
         addToCart(productId) {
@@ -637,17 +1027,64 @@ function appData() {
         getSeller(sellerId) {
             return store.getSeller(sellerId);
         },
+
+        // Product detail
+        async openProduct(productId) {
+            await store.setSelectedProductById(productId);
+            this.scrollTo('product-detail');
+        },
+
+        closeProductDetail() {
+            store.clearSelectedProduct();
+        },
         
         // Order methods
         async placeOrder(formData) {
             await store.placeOrder(formData);
         },
         
-        // Auth methods
-        login(email, password) {
-            return store.login(email, password);
+        // Auth methods (OTP + key)
+        async startOtp(identifier, purpose = 'login') {
+            return store.startOtpFlow(identifier, purpose);
         },
-        
+
+        async verifyOtp(otpCode) {
+            return store.verifyOtpCode(otpCode);
+        },
+
+        async setSafeKey(key) {
+            return store.setSafeKey(key);
+        },
+
+        async loginWithKey(identifier, key) {
+            return store.loginWithKey(identifier, key);
+        },
+
+        async extendSession() {
+            return store.extendSession();
+        },
+
+        // Account views
+        setAccountView(view) {
+            store.setAccountView(view);
+        },
+
+        async loadProfile() {
+            await store.loadProfile();
+        },
+
+        async loadOrders() {
+            await store.loadOrders();
+        },
+
+        async loadSellerDashboard() {
+            await store.loadSellerDashboard();
+        },
+
+        async loadAdminDashboard() {
+            await store.loadAdminDashboard();
+        },
+
         logout() {
             store.logout();
         },
@@ -705,6 +1142,13 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log('📧 EmailJS Configured:', !!window.EmailManager);
         window.appInitialized = true;
     }
+
+    // Start periodic session expiry checks (every 30 seconds)
+    setInterval(() => {
+        if (typeof store.checkSessionExpiry === 'function') {
+            store.checkSessionExpiry();
+        }
+    }, 30000);
 });
 
 // ============================================

@@ -55,6 +55,9 @@ class APIService {
     }
 
     // ========== AUTH ENDPOINTS ==========
+    // NOTE: The project is moving to pure OTP + key-based auth.
+    // These password-based methods are kept only for backward compatibility
+    // with any existing backend; new flows should use the OTP + key methods below.
     async register(name, email, phone, password, passwordConfirm) {
         const result = await this.request('POST', '/auth/register', {
             name,
@@ -63,16 +66,20 @@ class APIService {
             password,
             passwordConfirm
         });
-        this.setToken(result.token);
+        if (result.token) {
+            this.setToken(result.token);
+        }
         return result;
     }
-
+    
     async login(email, password) {
         const result = await this.request('POST', '/auth/login', {
             email,
             password
         });
-        this.setToken(result.token);
+        if (result.token) {
+            this.setToken(result.token);
+        }
         return result;
     }
 
@@ -82,6 +89,81 @@ class APIService {
 
     async verifyToken() {
         return this.request('POST', '/auth/verify-token');
+    }
+
+    // ---------- NEW: OTP + SAFE KEY AUTH FLOW ----------
+
+    /**
+     * Step 1: Request OTP for login / signup.
+     * Backend should:
+     *  - accept identifier (email or phone)
+     *  - create/find user
+     *  - send OTP via SMS/email
+     *  - return { requestId }
+     */
+    async requestOtp(identifier, purpose = 'login') {
+        return this.request('POST', '/auth/request-otp', {
+            identifier,
+            purpose
+        });
+    }
+
+    /**
+     * Step 2: Verify OTP code.
+     * Backend should:
+     *  - accept requestId + otpCode
+     *  - mark user as verified
+     *  - optionally return a short-lived token if needed
+     */
+    async verifyOtp(requestId, otpCode) {
+        return this.request('POST', '/auth/verify-otp', {
+            requestId,
+            otpCode
+        });
+    }
+
+    /**
+     * Step 3 (first-time only): Set user safe key.
+     * Backend should:
+     *  - hash + salt the key
+     *  - store hash server-side
+     *  - return a long-lived JWT for SPA/mobile use
+     */
+    async setSafeKey(key) {
+        const identifier = window.store?.state?.auth?.identifier;
+        const result = await this.request('POST', '/auth/set-key', { identifier, key });
+        if (result.token) {
+            this.setToken(result.token);
+        }
+        return result;
+    }
+
+    /**
+     * Step 4 (subsequent logins): Login with safe key.
+     * Backend should:
+     *  - authenticate with identifier + key against stored hash
+     *  - return a JWT token & user object
+     */
+    async loginWithKey(identifier, key) {
+        const result = await this.request('POST', '/auth/login-with-key', {
+            identifier,
+            key
+        });
+        if (result.token) {
+            this.setToken(result.token);
+        }
+        return result;
+    }
+
+    /**
+     * Extend current session by refreshing the JWT if still valid.
+     */
+    async refreshToken() {
+        const result = await this.request('POST', '/auth/refresh-token');
+        if (result.token) {
+            this.setToken(result.token);
+        }
+        return result;
     }
 
     // ========== PRODUCTS ENDPOINTS ==========

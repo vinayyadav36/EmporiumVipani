@@ -1,13 +1,17 @@
 const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const User = require('../models/User');
+const OtpToken = require('../models/OtpToken');
 const { validateEmail, validatePassword } = require('../utils/validators');
 
 // Generate JWT token
 const generateToken = (userId) => {
     return jwt.sign({ userId }, process.env.JWT_SECRET, {
-        expiresIn: process.env.JWT_EXPIRE || '7d'
+        // Enforce short-lived sessions for security; default 15 minutes
+        expiresIn: process.env.JWT_EXPIRE || '15m'
     });
 };
 
@@ -134,6 +138,280 @@ router.post('/login', async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Login failed'
+        });
+    }
+});
+
+// ============================================
+// POST /api/auth/request-otp
+// Request an OTP for email or phone-based login/signup
+// ============================================
+router.post('/request-otp', async (req, res) => {
+    try {
+        const { identifier, purpose = 'login' } = req.body;
+
+        if (!identifier) {
+            return res.status(400).json({
+                success: false,
+                message: 'Identifier (email or phone) is required'
+            });
+        }
+
+        const isEmail = validateEmail(identifier);
+        if (!isEmail) {
+            // For now we accept any non-empty identifier; phone-level validation
+            // can be added here if needed.
+        }
+
+        // Generate a 6-digit numeric OTP
+        const otpCode = (Math.floor(100000 + Math.random() * 900000)).toString();
+
+        const salt = await bcrypt.genSalt(10);
+        const codeHash = await bcrypt.hash(otpCode, salt);
+
+        const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+
+        const otpToken = await OtpToken.create({
+            identifier,
+            purpose,
+            codeHash,
+            expiresAt
+        });
+
+        // TODO: Integrate with SMS / email providers.
+        // For now, log to server console for testing.
+        console.log(`🔐 OTP for ${identifier}: ${otpCode} (expires in 5 minutes)`);
+
+        return res.json({
+            success: true,
+            message: 'OTP sent successfully',
+            requestId: otpToken._id
+        });
+    } catch (error) {
+        console.error('❌ OTP request error:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to send OTP'
+        });
+    }
+});
+
+// ============================================
+// POST /api/auth/verify-otp
+// Verify OTP and indicate whether a key is already set
+// ============================================
+router.post('/verify-otp', async (req, res) => {
+    try {
+        const { requestId, otpCode } = req.body;
+
+        if (!requestId || !otpCode) {
+            return res.status(400).json({
+                success: false,
+                message: 'requestId and otpCode are required'
+            });
+        }
+
+        const otpToken = await OtpToken.findById(requestId);
+
+        if (!otpToken) {
+            return res.status(400).json({
+                success: false,
+                message: 'OTP request not found or expired'
+            });
+        }
+
+        if (otpToken.expiresAt < new Date()) {
+            await otpToken.deleteOne();
+            return res.status(400).json({
+                success: false,
+                message: 'OTP has expired'
+            });
+        }
+
+        if (otpToken.attempts >= 5) {
+            await otpToken.deleteOne();
+            return res.status(429).json({
+                success: false,
+                message: 'Too many invalid attempts. Please request a new OTP.'
+            });
+        }
+
+        const isMatch = await bcrypt.compare(otpCode, otpToken.codeHash);
+        if (!isMatch) {
+            otpToken.attempts += 1;
+            await otpToken.save();
+            return res.status(401).json({
+                success: false,
+                message: 'Invalid OTP code'
+            });
+        }
+
+        const identifier = otpToken.identifier;
+        await otpToken.deleteOne();
+
+        // For now we treat identifier as email first, then phone
+        let user = await User.findOne({ email: identifier });
+        if (!user) {
+            user = await User.findOne({ phone: identifier });
+        }
+
+        if (!user) {
+            // Create a minimal placeholder user; they can complete profile later
+            const randomPassword = crypto.randomBytes(16).toString('hex');
+            user = await User.create({
+                name: 'New User',
+                email: validateEmail(identifier) ? identifier : `${identifier}@placeholder.local`,
+                phone: !validateEmail(identifier) ? identifier : 'N/A',
+                password: randomPassword
+            });
+        }
+
+        const hasKey = !!user.safeKeyHash;
+
+        return res.json({
+            success: true,
+            message: 'OTP verified',
+            user: user.toJSON(),
+            hasKey
+        });
+    } catch (error) {
+        console.error('❌ OTP verify error:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to verify OTP'
+        });
+    }
+});
+
+// ============================================
+// POST /api/auth/set-key
+// Set private key for a user after OTP verification
+// ============================================
+router.post('/set-key', async (req, res) => {
+    try {
+        const { identifier, key } = req.body;
+
+        if (!identifier || !key) {
+            return res.status(400).json({
+                success: false,
+                message: 'Identifier and key are required'
+            });
+        }
+
+        let user = await User.findOne({ email: identifier }).select('+safeKeyHash');
+        if (!user) {
+            user = await User.findOne({ phone: identifier }).select('+safeKeyHash');
+        }
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found for identifier'
+            });
+        }
+
+        const salt = await bcrypt.genSalt(12);
+        user.safeKeyHash = await bcrypt.hash(key, salt);
+        await user.save();
+
+        const token = generateToken(user._id);
+
+        return res.json({
+            success: true,
+            message: 'Key set successfully',
+            token,
+            user: user.toJSON()
+        });
+    } catch (error) {
+        console.error('❌ Set key error:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to set key'
+        });
+    }
+});
+
+// ============================================
+// POST /api/auth/login-with-key
+// Login using identifier + private key
+// ============================================
+router.post('/login-with-key', async (req, res) => {
+    try {
+        const { identifier, key } = req.body;
+
+        if (!identifier || !key) {
+            return res.status(400).json({
+                success: false,
+                message: 'Identifier and key are required'
+            });
+        }
+
+        let user = await User.findOne({ email: identifier }).select('+safeKeyHash');
+        if (!user) {
+            user = await User.findOne({ phone: identifier }).select('+safeKeyHash');
+        }
+
+        if (!user || !user.safeKeyHash) {
+            return res.status(401).json({
+                success: false,
+                message: 'Invalid credentials'
+            });
+        }
+
+        const isValid = await bcrypt.compare(key, user.safeKeyHash);
+        if (!isValid) {
+            return res.status(401).json({
+                success: false,
+                message: 'Invalid credentials'
+            });
+        }
+
+        const token = generateToken(user._id);
+
+        return res.json({
+            success: true,
+            message: 'Login successful',
+            token,
+            user: user.toJSON()
+        });
+    } catch (error) {
+        console.error('❌ Login with key error:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Login failed'
+        });
+    }
+});
+
+// ============================================
+// POST /api/auth/refresh-token
+// Extend current session if token is still valid
+// ============================================
+router.post('/refresh-token', (req, res) => {
+    try {
+        const authHeader = req.headers.authorization;
+        const token = authHeader && authHeader.split(' ')[1];
+
+        if (!token) {
+            return res.status(401).json({
+                success: false,
+                message: 'No token provided'
+            });
+        }
+
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const newToken = generateToken(decoded.userId);
+
+        return res.json({
+            success: true,
+            message: 'Session extended',
+            token: newToken
+        });
+    } catch (error) {
+        console.error('❌ Refresh token error:', error);
+        return res.status(401).json({
+            success: false,
+            message: 'Invalid or expired token'
         });
     }
 });

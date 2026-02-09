@@ -28,6 +28,11 @@ const userSchema = new mongoose.Schema(
             minlength: 6,
             select: false // Don't return password by default
         },
+        // Hashed private key for OTP + key-based auth (separate from password)
+        safeKeyHash: {
+            type: String,
+            select: false
+        },
         profilePicture: {
             type: String,
             default: null
