@@ -12,7 +12,11 @@
       "destination": "/admin.html"
     },
     {
-      "source": "/((?!.*\\..*|admin).*)",
+      "source": "/supplier",
+      "destination": "/supplier.html"
+    },
+    {
+      "source": "/((?!.*\\..*|admin|supplier).*)",
       "destination": "/index.html"
     }
   ],
