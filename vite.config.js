@@ -70,7 +70,8 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'src/index.html'),
-        admin: resolve(__dirname, 'src/admin.html')
+        admin: resolve(__dirname, 'src/admin.html'),
+        supplier: resolve(__dirname, 'src/supplier.html')
       }
     }
   },
